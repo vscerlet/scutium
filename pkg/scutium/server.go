@@ -23,7 +23,7 @@ func (s *Server) On(pkgType byte, handler HandlerFunc) {
 }
 
 func (s *Server) Listen() error {
-	listener, err := net.Listen(s.addr, s.protocol)
+	listener, err := net.Listen(s.protocol, s.addr)
 	if err != nil {
 		return err
 	}
