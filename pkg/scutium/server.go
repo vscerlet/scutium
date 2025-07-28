@@ -37,6 +37,7 @@ func (s *Server) Listen() error {
 			log.Printf("Ошибка при принятии соединения: %v\n", err)
 		}
 
+		go s.handleConnection(conn)
 	}
 }
 
