@@ -1,6 +1,7 @@
 package scutium
 
 import (
+	"encoding/binary"
 	"io"
 	"log"
 	"net"
@@ -11,14 +12,14 @@ type HandlerFunc func(conn net.Conn, payload []byte) error
 type Server struct {
 	addr     string
 	protocol string
-	handlers map[byte]HandlerFunc
+	handlers map[uint32]HandlerFunc
 }
 
 func NewServer(addr string, protocol string) *Server {
-	return &Server{addr: addr, protocol: protocol, handlers: make(map[byte]HandlerFunc)}
+	return &Server{addr: addr, protocol: protocol, handlers: make(map[uint32]HandlerFunc)}
 }
 
-func (s *Server) On(pkgType byte, handler HandlerFunc) {
+func (s *Server) On(pkgType uint32, handler HandlerFunc) {
 	s.handlers[pkgType] = handler
 }
 
@@ -65,7 +66,14 @@ func (s *Server) handleConnection(conn net.Conn) {
 			continue
 		}
 
-		handler := s.handlers[0x0]
-		handler(conn, buffer[:n])
+		pkgID := binary.BigEndian.Uint32(buffer[:4])
+		payload := buffer[4:n]
+
+		handler, ok := s.handlers[pkgID]
+		if !ok {
+			log.Printf("Получен пакет с неизвестный ID - %d", pkgID)
+			continue
+		}
+		go handler(conn, payload)
 	}
 }
