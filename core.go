@@ -54,7 +54,7 @@ func SendPkg(conn net.Conn, pkgID uint32, payload []byte) (int, error) {
 	buf.Write(payload)
 	n, err := conn.Write(buf.Bytes())
 	if err != nil {
-		return n, fmt.Errorf("%s: %w", n, err)
+		return n, fmt.Errorf("%s: %w", op, err)
 	}
 	return n, nil
 }
