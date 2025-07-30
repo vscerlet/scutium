@@ -63,31 +63,51 @@ func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	log.Printf("Новое соединение от %s\n", conn.RemoteAddr())
 
-	buffer := make([]byte, 1024)
-
 	for {
-		n, err := conn.Read(buffer)
-		if err != nil {
+		// Read the beginning of the packet from the socket
+		header := make([]byte, 4)
+		if _, err := io.ReadFull(conn, header); err != nil {
 			if err == io.EOF {
 				log.Printf("Соединение с %s закрыто\n", conn.RemoteAddr())
 			} else {
-				log.Printf("Ошибка чтения от %s: %v\n", conn.RemoteAddr(), err)
+				log.Printf("Ошибка чтения заголовка от %s: %v\n", conn.RemoteAddr(), err)
 			}
 			return
 		}
 
-		if n == 0 {
-			continue
+		// Extract the length of the packet
+		pkgLength := binary.BigEndian.Uint32(header)
+
+		// Skip incomplete packages
+		if pkgLength < 8 {
+			log.Printf("Некорректная длина пакета от %s: %d", conn.RemoteAddr(), pkgLength)
+			return
 		}
 
-		// Unpacking the package
-		pkg := parseBasicPacket(buffer[:n])
+		// Read the rest of the packet (pkgLength - 4 bytes)
+		body := make([]byte, pkgLength-4)
+		if _, err := io.ReadFull(conn, body); err != nil {
+			if err == io.EOF {
+				log.Printf("Соединение с %s закрыто\n", conn.RemoteAddr())
+			} else {
+				log.Printf("Ошибка чтения пакета от %s: %v\n", conn.RemoteAddr(), err)
+			}
+			return
+		}
 
+		// Collect the complete package
+		packet := append(header, body...)
+
+		// Parsing packet fields
+		pkg := parseBasicPacket(packet)
+
+		// Get a handler for the package
 		handler, ok := s.handlers[pkg.ID]
 		if !ok {
 			log.Printf("Получен пакет с неизвестный ID - %d", pkg.ID)
 			continue
 		}
+
 		go handler(conn, *pkg)
 	}
 }
