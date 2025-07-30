@@ -9,7 +9,7 @@ import (
 	"net"
 )
 
-type HandlerFunc func(conn net.Conn, payload []byte) error
+type HandlerFunc func(conn net.Conn, pkg BasicPacket) error
 
 type Server struct {
 	addr     string
@@ -81,13 +81,13 @@ func (s *Server) handleConnection(conn net.Conn) {
 		}
 
 		// Unpacking the package
-		pkg := parseBasePacket(buffer[:n])
+		pkg := parseBasicPacket(buffer[:n])
 
 		handler, ok := s.handlers[pkg.ID]
 		if !ok {
 			log.Printf("Получен пакет с неизвестный ID - %d", pkg.ID)
 			continue
 		}
-		go handler(conn, pkg.Payload)
+		go handler(conn, *pkg)
 	}
 }
