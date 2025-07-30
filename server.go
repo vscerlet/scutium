@@ -12,13 +12,23 @@ import (
 type HandlerFunc func(conn net.Conn, pkg BasicPacket) error
 
 type Server struct {
-	addr     string
-	protocol string
-	handlers map[uint32]HandlerFunc
+	addr          string
+	protocol      string
+	maxPacketSize uint32
+	handlers      map[uint32]HandlerFunc
 }
 
 func NewServer(addr string, protocol string) *Server {
-	return &Server{addr: addr, protocol: protocol, handlers: make(map[uint32]HandlerFunc)}
+	return &Server{
+		addr:          addr,
+		protocol:      protocol,
+		maxPacketSize: 1024 * 1024, // 1 MB
+		handlers:      make(map[uint32]HandlerFunc),
+	}
+}
+
+func (s *Server) SetMaxPacketSize(size uint32) {
+	s.maxPacketSize = size
 }
 
 func (s *Server) On(pkgType uint32, handler HandlerFunc) {
@@ -81,6 +91,11 @@ func (s *Server) handleConnection(conn net.Conn) {
 		// Skip incomplete packages
 		if pkgLength < 8 {
 			log.Printf("Некорректная длина пакета от %s: %d", conn.RemoteAddr(), pkgLength)
+			return
+		}
+
+		if pkgLength > s.maxPacketSize {
+			log.Printf("Пакет слишком большой от %s: %d байт, максимальный размер %d байт", conn.RemoteAddr(), pkgLength, s.maxPacketSize)
 			return
 		}
 
