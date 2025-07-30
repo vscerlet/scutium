@@ -59,8 +59,6 @@ func SendPkg(conn net.Conn, pkgID uint32, payload []byte) (int, error) {
 	return n, nil
 }
 
-// TODO: Реализовать парсинг стандартного пакета
-// TODO: Реализовать поиск обработчика и ошибку в случае её отсуствия
 func (s *Server) handleConnection(conn net.Conn) {
 	defer conn.Close()
 	log.Printf("Новое соединение от %s\n", conn.RemoteAddr())
@@ -78,7 +76,6 @@ func (s *Server) handleConnection(conn net.Conn) {
 			return
 		}
 
-		// Пропускаем пустой пакет
 		if n == 0 {
 			continue
 		}
