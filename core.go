@@ -80,14 +80,14 @@ func (s *Server) handleConnection(conn net.Conn) {
 			continue
 		}
 
-		pkgID := binary.BigEndian.Uint32(buffer[:4])
-		payload := buffer[4:n]
+		// Unpacking the package
+		pkg := parseBasePacket(buffer[:n])
 
-		handler, ok := s.handlers[pkgID]
+		handler, ok := s.handlers[pkg.ID]
 		if !ok {
-			log.Printf("Получен пакет с неизвестный ID - %d", pkgID)
+			log.Printf("Получен пакет с неизвестный ID - %d", pkg.ID)
 			continue
 		}
-		go handler(conn, payload)
+		go handler(conn, pkg.Payload)
 	}
 }
