@@ -2,46 +2,100 @@ package scutium
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"os"
+	"os/signal"
+	"sync"
+	"syscall"
+	"time"
 )
 
-type HandlerFunc func(conn net.Conn, payload []byte) error
+type HandlerFunc func(ctx context.Context, conn net.Conn, payload []byte) error
 
 type Server struct {
-	addr     string
-	protocol string
-	handlers map[uint32]HandlerFunc
+	addr        string
+	protocol    string
+	handlers    map[uint32]HandlerFunc
+	listener    net.Listener
+	wg          sync.WaitGroup
+	IdleTimeout time.Duration // Timeout for conn.Read
 }
 
 func NewServer(addr string, protocol string) *Server {
-	return &Server{addr: addr, protocol: protocol, handlers: make(map[uint32]HandlerFunc)}
+	s := &Server{
+		handlers:    make(map[uint32]HandlerFunc),
+		addr:        addr,
+		protocol:    protocol,
+		IdleTimeout: 200 * time.Millisecond,
+	}
+	l, err := net.Listen(protocol, addr)
+	if err != nil {
+		log.Fatal(err)
+	}
+	s.listener = l
+	return s
 }
 
 func (s *Server) On(pkgType uint32, handler HandlerFunc) {
 	s.handlers[pkgType] = handler
 }
 
-func (s *Server) Listen() error {
-	listener, err := net.Listen(s.protocol, s.addr)
-	if err != nil {
-		return err
-	}
-	defer listener.Close()
-
-	log.Printf("Сервер запущен и слушает на %s\n", s.addr)
-
+// stop stops server, closes listener, waits for gouroutines, handler os signals
+func (s *Server) stop(ctx context.Context, cancel context.CancelFunc) {
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	for {
-		conn, err := listener.Accept()
-		if err != nil {
-			log.Printf("Ошибка при принятии соединения: %v\n", err)
+		select {
+		case <-sigChan:
+			cancel()
+			s.listener.Close()
+			s.wg.Wait()
+			log.Printf("Сервер благополучно выполнил graceful shutdown")
+			return
+		case <-ctx.Done():
+			s.listener.Close()
+			s.wg.Wait()
+			log.Printf("Сервер благополучно выполнил graceful shutdown")
+			return
 		}
-
-		go s.handleConnection(conn)
 	}
+}
+
+func (s *Server) Listen() error {
+	log.Printf("Сервер запущен и слушает на %s\n", s.addr)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				log.Printf("Listen завершил работу")
+				return
+			default:
+				conn, err := s.listener.Accept()
+				if err != nil {
+					// Check if listener is close then go to next iteration to handle context cancellation
+					if opErr, ok := err.(*net.OpError); ok && opErr.Err.Error() == "use of closed network connection" {
+						continue
+					}
+					return
+				}
+				s.wg.Add(1)
+				go func() {
+					s.handleConnection(ctx, conn)
+					s.wg.Done()
+				}()
+			}
+		}
+	}()
+	s.stop(ctx, cancel) // Waits for ctx cancel or SIGINT or SIGTERM
+	return nil
 }
 
 func SendPkg(conn net.Conn, pkgID uint32, payload []byte) (int, error) {
@@ -59,35 +113,49 @@ func SendPkg(conn net.Conn, pkgID uint32, payload []byte) (int, error) {
 	return n, nil
 }
 
-func (s *Server) handleConnection(conn net.Conn) {
+func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 	defer conn.Close()
 	log.Printf("Новое соединение от %s\n", conn.RemoteAddr())
 
 	buffer := make([]byte, 1024)
-
 	for {
-		n, err := conn.Read(buffer)
-		if err != nil {
-			if err == io.EOF {
-				log.Printf("Соединение с %s закрыто\n", conn.RemoteAddr())
-			} else {
-				log.Printf("Ошибка чтения от %s: %v\n", conn.RemoteAddr(), err)
-			}
+		select {
+		case <-ctx.Done():
+			log.Printf("handle conn завершил работу")
 			return
-		}
+		default:
+			// Timeout for conn.Read in order to jump to next iteration of for to check if ctx.Done
+			conn.SetReadDeadline(time.Now().Add(s.IdleTimeout))
+			n, err := conn.Read(buffer)
+			if err != nil {
+				if opErr, ok := err.(*net.OpError); ok && opErr.Timeout() { // Check if timeout ender
+					continue // Check context again
+				}
+				if err == io.EOF {
+					log.Printf("Соединение с %s закрыто\n", conn.RemoteAddr())
+				} else {
+					log.Printf("Ошибка чтения от %s: %v\n", conn.RemoteAddr(), err)
+				}
+				return
+			}
+			if n == 0 {
+				continue
+			}
 
-		if n == 0 {
-			continue
-		}
+			// Unpacking the package
+			pkg := parseBasePacket(buffer[:n])
 
-		// Unpacking the package
-		pkg := parseBasePacket(buffer[:n])
+			handler, ok := s.handlers[pkg.ID]
+			if !ok {
+				log.Printf("Получен пакет с неизвестный ID - %d", pkg.ID)
+				continue
+			}
 
-		handler, ok := s.handlers[pkg.ID]
-		if !ok {
-			log.Printf("Получен пакет с неизвестный ID - %d", pkg.ID)
-			continue
+			s.wg.Add(1)
+			go func() {
+				handler(ctx, conn, pkg.Payload)
+				s.wg.Done()
+			}()
 		}
-		go handler(conn, pkg.Payload)
 	}
 }
