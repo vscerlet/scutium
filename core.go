@@ -80,8 +80,8 @@ func (s *Server) handleConnection(conn net.Conn) {
 			continue
 		}
 
-		pkgID := binary.BigEndian.Uint32(buffer[:4])
-		payload := buffer[4:n]
+		// Unpacking the package
+		pkgID, payload := parsePkg(buffer[:n])
 
 		handler, ok := s.handlers[pkgID]
 		if !ok {
@@ -90,4 +90,12 @@ func (s *Server) handleConnection(conn net.Conn) {
 		}
 		go handler(conn, payload)
 	}
+}
+
+// Parses the package into fields according to its structure
+func parsePkg(pkg []byte) (uint32, []byte) {
+	pkgID := binary.BigEndian.Uint32(pkg[:4])
+	payload := pkg[4:]
+
+	return pkgID, payload
 }
