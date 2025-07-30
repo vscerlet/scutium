@@ -1,7 +1,9 @@
 package scutium
 
 import (
+	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"log"
 	"net"
@@ -40,6 +42,21 @@ func (s *Server) Listen() error {
 
 		go s.handleConnection(conn)
 	}
+}
+
+func SendPkg(conn net.Conn, pkgID uint32, payload []byte) (int, error) {
+	const op = "SendPkg"
+	buf := new(bytes.Buffer)
+	err := binary.Write(buf, binary.BigEndian, pkgID)
+	if err != nil {
+		return 0, fmt.Errorf("%s: %w", op, err)
+	}
+	buf.Write(payload)
+	n, err := conn.Write(buf.Bytes())
+	if err != nil {
+		return n, fmt.Errorf("%s: %w", op, err)
+	}
+	return n, nil
 }
 
 // TODO: Реализовать парсинг стандартного пакета
