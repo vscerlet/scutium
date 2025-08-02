@@ -7,6 +7,7 @@ import (
 )
 
 func GetCurrentFuncName() string {
+
 	// Get the program counter, file, line, and ok flag for the caller at depth 1
 	pc, _, _, ok := runtime.Caller(1)
 
