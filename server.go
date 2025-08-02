@@ -95,7 +95,7 @@ func (s *Server) Listen() error {
 				log.Info("Socket is closed, stopped waiting for new connections")
 				return nil
 			default:
-				log.Error("Error accepting connection", err)
+				log.Error("Error accepting connection", err.Error())
 				return err
 			}
 		}
@@ -139,7 +139,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 			case errors.Is(err, net.ErrClosed):
 				log.Info("Connection is closed")
 			default:
-				log.Error("Error reading header", err)
+				log.Error("Error reading header", err.Error())
 			}
 			return
 		}
@@ -168,7 +168,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 			case errors.Is(err, net.ErrClosed):
 				log.Info("Connection is closed")
 			default:
-				log.Error("Error reading packet", err)
+				log.Error("Error reading packet", err.Error())
 			}
 			return
 		}
