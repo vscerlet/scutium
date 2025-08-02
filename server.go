@@ -7,7 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"sync"
 )
@@ -21,14 +21,16 @@ type Server struct {
 	handlers      map[uint32]HandlerFunc
 	exit          context.CancelFunc
 	wg            sync.WaitGroup
+	log           *slog.Logger
 }
 
-func NewServer(addr string, protocol string) *Server {
+func NewServer(addr string, protocol string, log *slog.Logger) *Server {
 	return &Server{
 		addr:          addr,
 		protocol:      protocol,
 		maxPacketSize: 1024 * 1024, // 1 MB
 		handlers:      make(map[uint32]HandlerFunc),
+		log:           log,
 	}
 }
 
@@ -51,6 +53,8 @@ func (s *Server) WaitStop() {
 }
 
 func (s *Server) Listen() error {
+	const op = "server.Listen"
+	log := s.log.With("op", op)
 	// Add Listen() to WaitGroup
 	s.wg.Add(1)
 	defer s.wg.Done()
@@ -64,7 +68,7 @@ func (s *Server) Listen() error {
 	closeListener := func() { closeOnce.Do(func() { listener.Close() }) }
 	defer closeListener()
 
-	log.Printf("Сервер запущен и слушает на %s\n", s.addr)
+	log.Info("Server started and listening...", "addr", s.addr)
 
 	// Initialize the context
 	ctx, cancel := context.WithCancel(context.Background())
@@ -82,10 +86,10 @@ func (s *Server) Listen() error {
 		if err != nil {
 			switch {
 			case errors.Is(err, net.ErrClosed):
-				log.Println("Сокет закрыт, перестаю ожидать новые соединения")
+				log.Info("Socket is closed, stopped waiting for new connections")
 				return nil
 			default:
-				log.Printf("Ошибка при принятии соединения: %v\n", err)
+				log.Error("Error accepting connection", err)
 				return err
 			}
 		}
@@ -100,7 +104,12 @@ func (s *Server) Listen() error {
 }
 
 func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
-	log.Printf("Новое соединение от %s\n", conn.RemoteAddr())
+	const op = "server.handleConnection"
+	log := s.log.With(
+		slog.String("op", op),
+		slog.Any("addr", conn.RemoteAddr()),
+	)
+	log.Info("New connection")
 
 	//
 	var closeOnce sync.Once
@@ -120,11 +129,11 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 		if _, err := io.ReadFull(conn, header); err != nil {
 			switch {
 			case errors.Is(err, io.EOF):
-				log.Printf("%s закрыл соединение\n", conn.RemoteAddr())
+				log.Info("Client closed connection")
 			case errors.Is(err, net.ErrClosed):
-				log.Printf("Соединение с %s закрыто\n", conn.RemoteAddr())
+				log.Info("Connection is closed")
 			default:
-				log.Printf("Ошибка чтения заголовка от %s: %v\n", conn.RemoteAddr(), err)
+				log.Error("Error reading header", err)
 			}
 			return
 		}
@@ -134,13 +143,13 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 
 		// If the packet is incomplete, close the connection
 		if pkgLength < 8 {
-			log.Printf("Некорректная длина пакета от %s: %d", conn.RemoteAddr(), pkgLength)
+			log.Error("Incorrect package length", "pkgLength", pkgLength)
 			return
 		}
 
 		// If the packet is too large, close the connection
 		if pkgLength > s.maxPacketSize {
-			log.Printf("Пакет слишком большой от %s: %d байт, максимальный размер %d байт", conn.RemoteAddr(), pkgLength, s.maxPacketSize)
+			log.Error("Packet is too big", "pkgLength", pkgLength, "maxPacketSize", s.maxPacketSize)
 			return
 		}
 
@@ -149,11 +158,11 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 		if _, err := io.ReadFull(conn, body); err != nil {
 			switch {
 			case errors.Is(err, io.EOF):
-				log.Printf("%s закрыл соединение\n", conn.RemoteAddr())
+				log.Info("Client closed connection")
 			case errors.Is(err, net.ErrClosed):
-				log.Printf("Соединение с %s закрыто\n", conn.RemoteAddr())
+				log.Info("Connection is closed")
 			default:
-				log.Printf("Ошибка чтения пакета от %s: %v\n", conn.RemoteAddr(), err)
+				log.Error("Error reading packet", err)
 			}
 			return
 		}
@@ -167,7 +176,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 		// Get a handler for the package
 		handler, ok := s.handlers[pkg.ID]
 		if !ok {
-			log.Printf("Получен пакет с неизвестным ID: %d", pkg.ID)
+			log.Error("Received packet with unknown ID", "ID", pkg.ID)
 			continue
 		}
 
