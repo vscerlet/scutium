@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/vscerlet/scutium/lib"
 	"io"
 	"log/slog"
 	"net"
@@ -58,7 +59,7 @@ func (s *Server) WaitStop() {
 }
 
 func (s *Server) Listen() error {
-	const op = "server.Listen"
+	op := lib.GetCurrentFuncName()
 	log := s.log.With("op", op)
 	// Add Listen() to WaitGroup
 	s.wg.Add(1)
@@ -109,7 +110,7 @@ func (s *Server) Listen() error {
 }
 
 func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
-	const op = "server.handleConnection"
+	op := lib.GetCurrentFuncName()
 	log := s.log.With(
 		slog.String("op", op),
 		slog.Any("addr", conn.RemoteAddr()),
@@ -195,7 +196,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 }
 
 func SendPkg(conn net.Conn, pkgID uint32, payload []byte) (int, error) {
-	const op = "SendPkg"
+	op := lib.GetCurrentFuncName()
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.BigEndian, pkgID)
 	if err != nil {
