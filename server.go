@@ -6,12 +6,13 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/vscerlet/scutium/lib"
 	"io"
 	"log/slog"
 	"net"
 	"os"
 	"sync"
+
+	"github.com/vscerlet/scutium/lib"
 )
 
 type HandlerFunc func(ctx context.Context, conn net.Conn, pkg BasicPacket) error
@@ -95,7 +96,7 @@ func (s *Server) Listen() error {
 				log.Info("Socket is closed, stopped waiting for new connections")
 				return nil
 			default:
-				log.Error("Error accepting connection", err.Error())
+				log.Error("Error accepting connection", slog.Any("err", err))
 				return err
 			}
 		}
@@ -139,7 +140,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 			case errors.Is(err, net.ErrClosed):
 				log.Info("Connection is closed")
 			default:
-				log.Error("Error reading header", err.Error())
+				log.Error("Error reading header", slog.Any("err", err))
 			}
 			return
 		}
@@ -168,7 +169,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 			case errors.Is(err, net.ErrClosed):
 				log.Info("Connection is closed")
 			default:
-				log.Error("Error reading packet", err.Error())
+				log.Error("Error reading packet", slog.Any("err", err))
 			}
 			return
 		}
