@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
 	"sync"
 )
 
@@ -24,14 +25,18 @@ type Server struct {
 	log           *slog.Logger
 }
 
-func NewServer(addr string, protocol string, log *slog.Logger) *Server {
+func NewServer(addr string, protocol string) *Server {
 	return &Server{
 		addr:          addr,
 		protocol:      protocol,
 		maxPacketSize: 1024 * 1024, // 1 MB
 		handlers:      make(map[uint32]HandlerFunc),
-		log:           log,
+		log:           slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})),
 	}
+}
+
+func (s *Server) SetLogger(log *slog.Logger) {
+	s.log = log
 }
 
 func (s *Server) SetMaxPacketSize(size uint32) {
