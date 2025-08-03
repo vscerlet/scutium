@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/vscerlet/scutium/lib"
 )
@@ -25,6 +26,7 @@ type Server struct {
 	exit          context.CancelFunc
 	wg            sync.WaitGroup
 	log           *slog.Logger
+	clientTimeout time.Duration
 }
 
 func NewServer(addr string, protocol string) *Server {
@@ -34,6 +36,7 @@ func NewServer(addr string, protocol string) *Server {
 		maxPacketSize: 1024 * 1024, // 1 MB
 		handlers:      make(map[uint32]HandlerFunc),
 		log:           slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})),
+		clientTimeout: 30 * time.Second,
 	}
 }
 
@@ -43,6 +46,10 @@ func (s *Server) SetLogger(log *slog.Logger) {
 
 func (s *Server) SetMaxPacketSize(size uint32) {
 	s.maxPacketSize = size
+}
+
+func (s *Server) SetClientTimeout(timeout time.Duration) {
+	s.clientTimeout = timeout
 }
 
 func (s *Server) On(pkgType uint32, handler HandlerFunc) {
@@ -132,6 +139,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 
 	for {
 		// Read the beginning of the packet from the socket
+		conn.SetReadDeadline(time.Now().Add(s.clientTimeout))
 		header := make([]byte, 4)
 		if _, err := io.ReadFull(conn, header); err != nil {
 			switch {
@@ -139,6 +147,8 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 				log.Info("Client closed connection")
 			case errors.Is(err, net.ErrClosed):
 				log.Info("Connection is closed")
+			case errors.Is(err, os.ErrDeadlineExceeded):
+				log.Info("Connection terminated due to client inactivity", "clientTimeout", s.clientTimeout)
 			default:
 				log.Error("Error reading header", slog.Any("err", err))
 			}
@@ -161,6 +171,7 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 		}
 
 		// Read the rest of the packet (pkgLength - 4 bytes)
+		conn.SetReadDeadline(time.Now().Add(s.clientTimeout))
 		body := make([]byte, pkgLength-4)
 		if _, err := io.ReadFull(conn, body); err != nil {
 			switch {
@@ -168,6 +179,8 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 				log.Info("Client closed connection")
 			case errors.Is(err, net.ErrClosed):
 				log.Info("Connection is closed")
+			case errors.Is(err, os.ErrDeadlineExceeded):
+				log.Info("Connection terminated due to client inactivity", "clientTimeout", s.clientTimeout)
 			default:
 				log.Error("Error reading packet", slog.Any("err", err))
 			}
