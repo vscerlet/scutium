@@ -22,11 +22,12 @@ type Server struct {
 	addr          string
 	protocol      string
 	maxPacketSize uint32
-	handlers      map[uint32]HandlerFunc
+	handlers      sync.Map
 	exit          context.CancelFunc
 	wg            sync.WaitGroup
 	log           *slog.Logger
 	clientTimeout time.Duration
+	m             *sync.Mutex
 }
 
 func NewServer(addr string, protocol string) *Server {
@@ -34,26 +35,31 @@ func NewServer(addr string, protocol string) *Server {
 		addr:          addr,
 		protocol:      protocol,
 		maxPacketSize: 1024 * 1024, // 1 MB
-		handlers:      make(map[uint32]HandlerFunc),
 		log:           slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug})),
 		clientTimeout: 30 * time.Second,
 	}
 }
 
 func (s *Server) SetLogger(log *slog.Logger) {
+	s.m.Lock()
+	defer s.m.Unlock()
 	s.log = log
 }
 
 func (s *Server) SetMaxPacketSize(size uint32) {
+	s.m.Lock()
+	defer s.m.Unlock()
 	s.maxPacketSize = size
 }
 
 func (s *Server) SetClientTimeout(timeout time.Duration) {
+	s.m.Lock()
+	defer s.m.Unlock()
 	s.clientTimeout = timeout
 }
 
 func (s *Server) On(pkgType uint32, handler HandlerFunc) {
-	s.handlers[pkgType] = handler
+	s.handlers.Store(pkgType, handler)
 }
 
 func (s *Server) Stop() {
@@ -194,17 +200,25 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 		pkg := parseBasicPacket(packet)
 
 		// Get a handler for the package
-		handler, ok := s.handlers[pkg.ID]
+		handler, ok := s.handlers.Load(pkg.ID)
 		if !ok {
 			log.Error("Received packet with unknown ID", "ID", pkg.ID)
 			continue
+		}
+		// Get value from map; check if this is function; cast it to HandlerFunc
+		var handlerFunc HandlerFunc
+		if h, isFunc := handler.(HandlerFunc); isFunc {
+			handlerFunc = h
+		} else {
+			log.Error("handler is not a function")
+			return
 		}
 
 		// Launching a user handler
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			handler(ctx, conn, *pkg)
+			handlerFunc(ctx, conn, *pkg)
 		}()
 	}
 }
