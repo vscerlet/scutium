@@ -1,7 +1,6 @@
 package scutium
 
 import (
-	"bytes"
 	"context"
 	"encoding/binary"
 	"errors"
@@ -225,13 +224,14 @@ func (s *Server) handleConnection(ctx context.Context, conn net.Conn) {
 
 func SendPkg(conn net.Conn, pkgID uint32, payload []byte) (int, error) {
 	op := lib.GetCurrentFuncName()
-	buf := new(bytes.Buffer)
-	err := binary.Write(buf, binary.BigEndian, pkgID)
-	if err != nil {
-		return 0, fmt.Errorf("%s: %w", op, err)
-	}
-	buf.Write(payload)
-	n, err := conn.Write(buf.Bytes())
+	totalLength := uint32(8 + len(payload))
+	buf := make([]byte, totalLength)
+
+	binary.BigEndian.PutUint32(buf[0:4], totalLength)
+	binary.BigEndian.PutUint32(buf[4:8], pkgID)
+	copy(buf[8:], payload)
+
+	n, err := conn.Write(buf)
 	if err != nil {
 		return n, fmt.Errorf("%s: %w", op, err)
 	}

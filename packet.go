@@ -18,6 +18,5 @@ func parseBasicPacket(pkg []byte) *BasicPacket {
 	pkgLength := binary.BigEndian.Uint32(pkg[:4])
 	pkgID := binary.BigEndian.Uint32(pkg[4:8])
 	payload := pkg[8:]
-
 	return &BasicPacket{Length: pkgLength, ID: pkgID, Payload: payload}
 }
