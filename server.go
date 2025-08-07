@@ -27,7 +27,7 @@ type Server struct {
 	wg            sync.WaitGroup
 	log           *slog.Logger
 	clientTimeout time.Duration
-	m             *sync.Mutex
+	m             sync.Mutex
 }
 
 func NewServer(addr string, protocol string) *Server {
